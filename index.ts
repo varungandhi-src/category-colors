@@ -3,8 +3,18 @@ import chroma from "chroma-js";
 const modes = ["light", "dark"];
 
 const backgroundColors = {
-	"dark": "#303346",
-	"light": "#ffffff"
+	"dark": [
+        // From Sourcegraph's blob view background
+        "#303346",
+        // Based on some loose testing with a different highlighting color
+        "#566587"
+    ],
+	"light": [
+        // From Sourcegraph's blob view background
+        "#ffffff",
+        // Based on some loose testing with a different highlighting color
+        "#efefef"
+    ]
 };
 
 // From
@@ -85,15 +95,15 @@ const getClosestColor = (color: Color, colorArray: Color[]): Color => {
     return colorArray[minIndex];
 };
 
-const sgDistances = (backgroundColor: chroma.Color, foregroundColors: chroma.Color[], visionSpace = "Normal"): {fromBg: number[], mutual: number[]} => {
+const sgDistances = (backgroundColors: chroma.Color[], foregroundColors: chroma.Color[], visionSpace = "Normal"): {fromBg: number[], mutual: number[]} => {
     let bgDistances: number[] = [];
     let distances: number[] = [];
-    const convertedBgColor: Color = brettelFunctions[visionSpace](backgroundColor.rgb());
-    const convertedColors: Color[] = foregroundColors.map((c) =>
-        brettelFunctions[visionSpace](c.rgb())
-    );
+    const convertedBgColors: Color[] = backgroundColors.map((b) => brettelFunctions[visionSpace](b.rgb()));
+    const convertedColors: Color[] = foregroundColors.map((c) => brettelFunctions[visionSpace](c.rgb()));
     for (let i = 0; i < foregroundColors.length; i++) {
-        bgDistances.push(distance(convertedBgColor, convertedColors[i]));
+        for (const convertedBgColor of convertedBgColors) {
+            bgDistances.push(distance(convertedBgColor, convertedColors[i]));
+        }
         for (let j = i + 1; j < foregroundColors.length; j++) {
             distances.push(distance(convertedColors[i], convertedColors[j]));
         }
@@ -293,7 +303,7 @@ function rms_distance(baseline: number, xs: number[]): number {
 }
 
 // Cost function including weights
-const cost = (state: chroma.Color[], bgColor: chroma.Color, targetColors: chroma.Color[]): number => {
+const cost = (state: chroma.Color[], bgColor: chroma.Color[], targetColors: chroma.Color[]): number => {
     const energyWeight = 1;
     const rangeWeight = 0.5;
     const targetWeight = 1;
@@ -332,13 +342,13 @@ const cost = (state: chroma.Color[], bgColor: chroma.Color, targetColors: chroma
 };
 
 // the simulated annealing algorithm
-const optimize = (n = 5, bgColor: chroma.Color, targetColors: chroma.Color[]) => {
+const optimize = (n = 5, bgColors: chroma.Color[], targetColors: chroma.Color[]) => {
     let colors: chroma.Color[] = [];
     for (let i = 0; i < n; i++) {
         colors.push(randomColor());
     }
 
-    const calculateCost = (current: chroma.Color[]): number => { return cost(current, bgColor, targetColors) }
+    const calculateCost = (current: chroma.Color[]): number => { return cost(current, bgColors, targetColors) }
 
     const startColors = Array.from(targetColors); // is this a good starting point?
     const startCost = calculateCost(startColors);
@@ -378,7 +388,9 @@ Start colors: ${startColors.map((color) => color.hex())}
 Start cost: ${startCost}
 Final colors: ${colors.map((color) => color.hex())}
 Final cost: ${calculateCost(colors)}
-Cost difference: ${calculateCost(colors) - startCost}`);
+Cost difference: ${calculateCost(colors) - startCost}
+Full palette: ${(colors.concat(bgColors)).map((c) => c.hex())}
+`);
     return colors;
 };
 
@@ -397,9 +409,9 @@ const sgMain = () => {
         targets.push(...alertColors);
 
         const targetColors = targets.map((cstr) => { return chroma(cstr) })
-        const str = `Optimized for ${mode} mode with background color ${backgroundColors[mode]}`
+        const str = `Optimized for ${mode} mode with background colors ${backgroundColors[mode]}`
         console.time(str);
-        optimize(targetColors.length, chroma(backgroundColors[mode]), targetColors);
+        optimize(targetColors.length, backgroundColors[mode].map((b) => chroma(b)), targetColors);
         console.timeEnd(str);
     }
 }
