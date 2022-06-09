@@ -8,7 +8,7 @@ It comes with an MIT License - please use it carefully and respectfully.
 
 ### Running
 
-To generate colors, run `node index.js`.
+To generate colors, run `npm install && npx ts-node -O '{"noImplicitAny": false}' index.ts`.
 
 ### Modifying
 

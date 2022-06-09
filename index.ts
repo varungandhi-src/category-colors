@@ -1,4 +1,59 @@
-const chroma = require("chroma-js");
+import chroma from "chroma-js";
+
+const modes = ["light", "dark"];
+
+const backgroundColors = {
+	"dark": "#303346",
+	"light": "#ffffff"
+};
+
+// From
+// https://handbook.sourcegraph.com/departments/engineering/product/design/brand_guidelines/color/#secondary-colors
+//
+// These also include the primary colors.
+const brandColors = {
+    "mist": [
+        "#fff2cf",
+        "#ffc9c9",
+        "#ffd1f2",
+        "#e8d1ff",
+        "#bfbfff",
+        "#c7ffff"
+    ],
+    "light": [
+        "#ffdb45",
+        "#ff5543",
+        "#d62687",
+        "#a112ff",
+        "#6b59ed",
+        "#00cbec",
+        "#8fedcf"
+    ],
+    "medium": [
+        "#ffc247",
+        "#ed2e20",
+        "#c4147d",
+        "#820dde",
+        "#5033E1",
+        "#00a1c7",
+        "#17ab52"
+    ],
+    "dark": [
+        "#ff9933",
+        "#c22626",
+        "#9e1769",
+        "#6112a3",
+        "#3826cc",
+        "#005482",
+        "#1f7d45"
+    ]
+};
+
+const alertColors = [
+    "#82a460",
+    "#c3c865",
+    "#bb3926"
+];
 
 const targetColors = [
     "#9966FF",
@@ -9,51 +64,55 @@ const targetColors = [
 ];
 
 // random from array
-const randomFromArray = (array) => {
+const randomFromArray = (array: number[]) => {
     return array[Math.floor(Math.random() * array.length)];
 };
 
 // generate a random color
-const randomColor = () => {
+const randomColor = (): chroma.Color => {
     const color = chroma.random();
     return color;
 };
 
-// measures the distance between two colors
-const distance = (color1, color2) => chroma.deltaE(color1, color2);
+type Color = string | chroma.Color
 
-const getClosestColor = (color, colorArray) => {
+// measures the distance between two colors
+const distance = (color1: Color, color2: Color): number => chroma.deltaE(color1, color2);
+
+const getClosestColor = (color: Color, colorArray: Color[]): Color => {
     const distances = colorArray.map((c) => distance(color, c));
     const minIndex = distances.indexOf(Math.min(...distances));
     return colorArray[minIndex];
 };
 
-// array of distances between all points in a color array
-const distances = (colorArray, visionSpace = "Normal") => {
-    const distances = [];
-    const convertedColors = colorArray.map((c) =>
+const sgDistances = (backgroundColor: chroma.Color, foregroundColors: chroma.Color[], visionSpace = "Normal"): {fromBg: number[], mutual: number[]} => {
+    let bgDistances: number[] = [];
+    let distances: number[] = [];
+    const convertedBgColor: Color = brettelFunctions[visionSpace](backgroundColor.rgb());
+    const convertedColors: Color[] = foregroundColors.map((c) =>
         brettelFunctions[visionSpace](c.rgb())
     );
-    for (let i = 0; i < colorArray.length; i++) {
-        for (let j = i + 1; j < colorArray.length; j++) {
+    for (let i = 0; i < foregroundColors.length; i++) {
+        bgDistances.push(distance(convertedBgColor, convertedColors[i]));
+        for (let j = i + 1; j < foregroundColors.length; j++) {
             distances.push(distance(convertedColors[i], convertedColors[j]));
         }
     }
-    return distances;
-};
+    return {fromBg: bgDistances, mutual: distances};
+}
 
 // get average of interger array
-const average = (array) => array.reduce((a, b) => a + b) / array.length;
+const average = (array: number[]) => array.reduce((a, b) => a + b) / array.length;
 
 
 // get the distance between the highest and lowest values in an array
-const range = (array) => {
+const range = (array: number[]) => {
     const sorted = array.sort((a, b) => a - b);
     return sorted[sorted.length - 1] - sorted[0];
 };
 
 // produces a color a small random distance away from the given color
-const randomNearbyColor = (color) => {
+const randomNearbyColor = (color: chroma.Color): chroma.Color => {
     const channelToChange = randomFromArray([0, 1, 2]);
     const oldVal = color.gl()[channelToChange];
     let newVal = oldVal + Math.random() * 0.1 - 0.05;
@@ -65,8 +124,8 @@ const randomNearbyColor = (color) => {
     return color.set(`rgb.${"rgb"[channelToChange]}`, newVal * 255);
 };
 
-// average of distances between array of colors and stripe colors
-const averageDistanceFromtargetColors = (colors) => {
+// average of distances between array of colors and target colors
+const averageDistanceFromTargetColors = (colors: chroma.Color[], targetColors: chroma.Color[]): number => {
     const distances = colors.map((c) =>
         distance(c, getClosestColor(c, targetColors))
     );
@@ -78,13 +137,13 @@ const averageDistanceFromtargetColors = (colors) => {
 // In turn adapted from libDaltonLens https://daltonlens.org (public domain) 
 
 // convert a linear rgb value to sRGB
-const linearRGB_from_sRGB = (v) => {
+const linearRGB_from_sRGB = (v: number): number => {
     var fv = v / 255.0;
     if (fv < 0.04045) return fv / 12.92;
     return Math.pow((fv + 0.055) / 1.055, 2.4);
 }
 
-const sRGB_from_linearRGB = (v) => {
+const sRGB_from_linearRGB = (v: number): number => {
     if (v <= 0) return 0;
     if (v >= 1) return 255;
     if (v < 0.0031308) return 0.5 + v * 12.92 * 255;
@@ -121,15 +180,14 @@ const brettelFunctions = {
     },
 };
 
-var sRGB_to_linearRGB_Lookup = Array(256);
+var sRGB_to_linearRGB_Lookup: number[] = Array(256);
 (function () {
-    var i;
-    for (i = 0; i < 256; i++) {
+    for (let i = 0; i < 256; i++) {
         sRGB_to_linearRGB_Lookup[i] = linearRGB_from_sRGB(i);
     }
 })();
 
-brettel_params = {
+const brettel_params = {
     protan: {
         rgbCvdFromRgb_1: [
             0.1451, 1.20165, -0.34675, 0.10447, 0.85316, 0.04237, 0.00429,
@@ -167,7 +225,7 @@ brettel_params = {
     },
 };
 
-function brettel(srgb, t, severity) {
+function brettel(srgb, t, severity): any {
     // Go from sRGB to linearRGB
     var rgb = Array(3);
     rgb[0] = sRGB_to_linearRGB_Lookup[srgb[0]];
@@ -218,7 +276,7 @@ function brettel(srgb, t, severity) {
 }
 
 // Adjusted from the hcirn code
-function monochrome_with_severity(srgb, severity) {
+function monochrome_with_severity(srgb: number[], severity: number): number[] {
     var z = Math.round(srgb[0] * 0.299 + srgb[1] * 0.587 + srgb[2] * 0.114);
     var r = z * severity + (1.0 - severity) * srgb[0];
     var g = z * severity + (1.0 - severity) * srgb[1];
@@ -226,46 +284,65 @@ function monochrome_with_severity(srgb, severity) {
     return [r, g, b];
 }
 
+function rms(xs: number[]): number {
+    return Math.sqrt(average(xs.map((x) => x * x)))
+}
+
+function rms_distance(baseline: number, xs: number[]): number {
+    return rms(xs.map((x) => (baseline - x)))
+}
+
 // Cost function including weights
-const cost = (state) => {
+const cost = (state: chroma.Color[], bgColor: chroma.Color, targetColors: chroma.Color[]): number => {
     const energyWeight = 1;
-    const rangeWeight = 1;
+    const rangeWeight = 0.5;
     const targetWeight = 1;
     const protanopiaWeight = 0.33;
     const deuteranopiaWeight = 0.33;
     const tritanopiaWeight = 0.33;
 
-    const normalDistances = distances(state);
-    const protanopiaDistances = distances(state, "Protanopia");
-    const deuteranopiaDistances = distances(state, "Deuteranopia");
-    const tritanopiaDistances = distances(state, "Tritanopia");
+    const normalDistances = sgDistances(bgColor, state);
+    const protanopiaDistances = sgDistances(bgColor, state, "Protanopia");
+    const deuteranopiaDistances = sgDistances(bgColor, state, "Deuteranopia");
+    const tritanopiaDistances = sgDistances(bgColor, state, "Tritanopia");
 
-    const energyScore =  100 - average(normalDistances); 
-    const protanopiaScore = 100 - average(protanopiaDistances);
-    const deuteranopiaScore = 100 - average(deuteranopiaDistances);
-    const tritanopiaScore = 100 - average(tritanopiaDistances);
-    const rangeScore = range(normalDistances);
-    const targetScore = averageDistanceFromtargetColors(state);
+    const costFrom = (distances: {fromBg: number[], mutual: number[]}): number => {
+        const bgWeight = 0.2;
+        const bgScore = rms_distance(100, distances.fromBg);
+        const mutualScore = rms_distance(100, distances.mutual);
+        return bgScore * bgWeight + (1 - bgWeight) * mutualScore
+    }
+
+    const energyCost =  costFrom(normalDistances); 
+    const protanopiaCost = costFrom(protanopiaDistances);
+    const deuteranopiaCost = costFrom(deuteranopiaDistances);
+    const tritanopiaCost = costFrom(tritanopiaDistances);
+    // This should really be variance
+    const rangeCost = range(normalDistances.mutual);
+    const targetCost = averageDistanceFromTargetColors(state, targetColors);
 
     return (
-        energyWeight * energyScore +
-        targetWeight * targetScore +
-        rangeWeight * rangeScore +
-        protanopiaWeight * protanopiaScore +
-        deuteranopiaWeight * deuteranopiaScore +
-        tritanopiaWeight * tritanopiaScore
+        energyWeight * energyCost +
+        targetWeight * targetCost +
+        rangeWeight * rangeCost +
+        protanopiaWeight * protanopiaCost +
+        deuteranopiaWeight * deuteranopiaCost +
+        tritanopiaWeight * tritanopiaCost
     );
 };
 
 // the simulated annealing algorithm
-const optimize = (n = 5) => {
-    const colors = [];
+const optimize = (n = 5, bgColor: chroma.Color, targetColors: chroma.Color[]) => {
+    let colors: chroma.Color[] = [];
     for (let i = 0; i < n; i++) {
         colors.push(randomColor());
     }
 
-    const startColors = Array.from(colors);
-    const startCost = cost(startColors);
+    const calculateCost = (current: chroma.Color[]): number => { return cost(current, bgColor, targetColors) }
+
+    const startColors = Array.from(targetColors); // is this a good starting point?
+    const startCost = calculateCost(startColors);
+    let oldCost = startCost;
 
     // intialize hyperparameters
     let temperature = 1000;
@@ -283,13 +360,14 @@ const optimize = (n = 5) => {
             // choose between the current state and the new state
             // based on the difference between the two, the temperature
             // of the algorithm, and some random chance
-            const delta = cost(newColors) - cost(colors);
+            const newCost = calculateCost(newColors);
+            const delta = newCost - oldCost;
             const probability = Math.exp(-delta / temperature);
             if (Math.random() < probability) {
                 colors[i] = newColors[i];
+                oldCost = newCost;
             }
         }
-        console.log(`Current cost: ${cost(colors)}`);
 
         // decrease temperature
         temperature *= coolingRate;
@@ -299,9 +377,31 @@ const optimize = (n = 5) => {
 Start colors: ${startColors.map((color) => color.hex())}
 Start cost: ${startCost}
 Final colors: ${colors.map((color) => color.hex())}
-Final cost: ${cost(colors)}
-Cost difference: ${cost(colors) - startCost}`);
+Final cost: ${calculateCost(colors)}
+Cost difference: ${calculateCost(colors) - startCost}`);
     return colors;
 };
 
-optimize(8);
+
+const sgMain = () => {
+    for (const mode of modes) {
+        // Use fewer secondaries for now, optimization with lots of colors takes long.
+        const secondaries = (mode === "dark") ? ["mist", "light"] : ["light", "medium"];
+
+        // const secondaries = (mode == "dark") ?
+        //    ["mist", "light", "medium"] : ["light", "medium", "dark"];
+        let targets: string[] = [];
+        for (const key of secondaries) {
+            targets.push(...brandColors[key]);
+        }
+        targets.push(...alertColors);
+
+        const targetColors = targets.map((cstr) => { return chroma(cstr) })
+        const str = `Optimized for ${mode} mode with background color ${backgroundColors[mode]}`
+        console.time(str);
+        optimize(targetColors.length, chroma(backgroundColors[mode]), targetColors);
+        console.timeEnd(str);
+    }
+}
+
+sgMain();
