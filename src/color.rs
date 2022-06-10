@@ -1,11 +1,14 @@
+use std::{cmp::Ordering, fmt::Display, str::FromStr};
 
-use std::{str::FromStr, fmt::Display, cmp::Ordering};
-
-use p::{Lch, convert::FromColorUnclamped, ColorDifference, RelativeContrast};
+use p::{convert::FromColorUnclamped, ColorDifference, Lch, RelativeContrast};
 use palette as p;
 use rand::Rng as RngTrait;
 
-use crate::{random::Rng, convert::{triple_to_array, array_to_triple}, cost::ContrastNeed};
+use crate::{
+    convert::{array_to_triple, triple_to_array},
+    cost::{ContrastNeed, ScaledCost},
+    random::Rng,
+};
 
 pub type Color = p::rgb::Rgb<p::encoding::srgb::Srgb, f32>;
 pub type LinearRgb = p::rgb::Rgb<p::encoding::Linear<p::encoding::srgb::Srgb>, f32>;
@@ -140,12 +143,13 @@ impl<X> ColorDataTable<X> {
 
 impl<X: Clone> ColorDataTable<X> {
     pub fn sort_rows(&mut self, compare: &dyn Fn(&[X], &[X]) -> Ordering) {
-        let mut glued: Vec<_> = self.rows.clone().into_iter()
-        .zip(self.data.clone().into_iter())
-        .collect();
-        glued.sort_by(|(_, v1), (_, v2)| {
-            compare(v1, v2)
-        });
+        let mut glued: Vec<_> = self
+            .rows
+            .clone()
+            .into_iter()
+            .zip(self.data.clone().into_iter())
+            .collect();
+        glued.sort_by(|(_, v1), (_, v2)| compare(v1, v2));
         for (i, (r, d)) in glued.into_iter().enumerate() {
             self.rows[i] = r;
             self.data[i] = d;
@@ -153,8 +157,7 @@ impl<X: Clone> ColorDataTable<X> {
     }
 }
 
-
-impl <X: Display + DrawAttention> ColorDataTable<X> {
+impl<X: Display + DrawAttention> ColorDataTable<X> {
     pub fn table(&self) -> prettytable::Table {
         let mut t = Table::new();
         t.set_format(*prettytable::format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
@@ -175,10 +178,10 @@ impl <X: Display + DrawAttention> ColorDataTable<X> {
             for j in self.data[i].iter() {
                 let mut c = Cell::new(&format!("{j}"));
                 match j.attention() {
-                    Attention::Normal => {},
+                    Attention::Normal => {}
                     Attention::Bad => {
                         c = c.with_style(Attr::Standout(true));
-                    },
+                    }
                     Attention::Good => {
                         c = c.with_style(Attr::Underline(true));
                     }
@@ -206,15 +209,31 @@ pub struct ContrastRatio {
 impl ContrastRatio {
     pub fn new(value: f32, need: ContrastNeed) -> ContrastRatio {
         if value < 1.0 {
-            return ContrastRatio { value: 1. / value, need };
+            return ContrastRatio {
+                value: 1. / value,
+                need,
+            };
         }
         ContrastRatio { value, need }
+    }
+    pub fn for_pair(c1: Color, c2: Color, need: ContrastNeed) -> ContrastRatio {
+        Self::new(c1.get_contrast_ratio(&c2), need)
     }
     pub fn value(&self) -> f32 {
         self.value
     }
     pub fn need(&self) -> ContrastNeed {
         self.need
+    }
+    pub fn cost(&self) -> ScaledCost {
+        let ratio = self.value();
+        assert!(1. <= ratio && ratio <= 21.);
+        let min_ratio = self.need().minimum_ratio();
+        if ratio < min_ratio {
+            return ScaledCost::new(100.);
+        }
+        // Sigmoid pushing towards high contrast
+        ScaledCost::new(100. / (1. + (4. * (self.value() - ratio)).exp()))
     }
 }
 
@@ -233,7 +252,11 @@ impl Display for ContrastRatio {
     }
 }
 
-pub fn contrast_table(rows: Vec<Color>, cols: Vec<Color>, need: ContrastNeed) -> ColorDataTable<ContrastRatio> {
+pub fn contrast_table(
+    rows: Vec<Color>,
+    cols: Vec<Color>,
+    need: ContrastNeed,
+) -> ColorDataTable<ContrastRatio> {
     ColorDataTable::new(rows, cols, "contrast", &|c1, c2| {
         ContrastRatio::new(c1.get_contrast_ratio(&c2), need)
     })

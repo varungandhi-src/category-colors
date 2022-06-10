@@ -1,13 +1,14 @@
 use std::collections::HashMap;
 
-use palette::RelativeContrast;
-
-use crate::{color::*, cost::{contrast_cost, ContrastNeed, ScaledCost}, math::root_mean_square};
+use crate::{
+    color::*,
+    cost::{ContrastNeed, ScaledCost},
+    math::root_mean_square,
+};
 
 #[derive(Copy, Clone)]
 pub enum Mode {
     Light,
-    #[allow(dead_code)]
     Dark,
 }
 
@@ -21,11 +22,10 @@ impl Mode {
 
     pub fn brand_color_keys(self) -> Vec<&'static str> {
         match self {
-            Mode::Dark => vec!["light", "medium"],
+            Mode::Dark => vec!["mist", "light"],
             Mode::Light => vec!["medium", "dark"],
         }
     }
-
     pub fn brand_colors(self) -> Vec<Color> {
         let cols = brand_colors();
         let mut out = vec![];
@@ -33,6 +33,12 @@ impl Mode {
             out.extend(cols[key].iter());
         }
         return out;
+    }
+    pub fn text(&self) -> &'static str {
+        match self {
+            Mode::Dark => "dark",
+            Mode::Light => "light",
+        }
     }
 }
 
@@ -87,12 +93,10 @@ impl BackgroundColors {
             (self.main, self.git_added),
             (self.main, self.git_line_selection),
             (self.main, self.git_deleted),
-
             (self.range_selection, self.line_selection),
             (self.range_selection, self.git_added),
             (self.range_selection, self.git_line_selection),
             (self.range_selection, self.git_deleted),
-
             (self.git_added, self.git_line_selection),
             (self.git_added, self.git_deleted),
             (self.git_line_selection, self.git_deleted),
@@ -100,13 +104,11 @@ impl BackgroundColors {
         let mut contrast_values = Vec::with_capacity(pairs.len());
         for (c1, c2) in pairs.into_iter() {
             let need = ContrastNeed::Background;
-            contrast_values.push(contrast_cost(
-                ContrastRatio::new(c1.get_contrast_ratio(&c2), need),
-            ).value());
+            contrast_values
+                .push(ContrastRatio::for_pair(c1, c2, need).cost().value());
         }
         ScaledCost::new(root_mean_square(&contrast_values))
     }
-
 }
 
 fn dark_mode_bg_colors() -> BackgroundColors {

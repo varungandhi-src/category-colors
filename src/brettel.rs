@@ -6,7 +6,8 @@ pub struct BrettelParams {
     separation_plane_normal: [f32; 3],
 }
 
-pub fn brettel_function(c: Color, v: Vision) -> Color { // TODO: How to describe what this does?
+pub fn brettel_function(c: Color, v: Vision) -> Color {
+    // TODO: How to describe what this does?
     use Vision::*;
     match v {
         Default => c,

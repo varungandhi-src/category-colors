@@ -1,22 +1,22 @@
-
 use std::{env::args, fmt::Display};
 
+use palette::RelativeContrast;
 use rand::{Rng as RandRng, SeedableRng};
 
 mod brettel;
-mod convert;
 mod color;
+mod convert;
 mod cost;
-mod random;
 mod math;
+mod random;
 mod sg;
 
 use crate::brettel::*;
 use crate::color::*;
+use crate::cost::*;
 use crate::math::*;
 use crate::random::*;
 use crate::sg::*;
-use crate::cost::*;
 
 #[derive(Clone)]
 struct State {
@@ -101,6 +101,9 @@ impl State {
     const TARGET_BG_WEIGHT: f32 = 0.1;
     const TARGET_FG_WEIGHT: f32 = 1. - Self::TARGET_BG_WEIGHT;
 
+    const CONTRAST_BG_BG_WEIGHT: f32 = 0.3;
+    const CONTRAST_BG_FG_WEIGHT: f32 = 1. - Self::CONTRAST_BG_BG_WEIGHT;
+
     fn distance_cost(&self, bufs: &mut ScratchBuffers, v: Vision) -> ScaledCost {
         bufs.bg_colors.clear();
         bufs.fg_colors.clear();
@@ -144,10 +147,27 @@ impl State {
         )
     }
 
+    fn contrast_cost(&self, bufs: &mut ScratchBuffers) -> ScaledCost {
+        let bg_bg = self.bg_colors.contrast_cost().value();
+        bufs.bg_to_fg.clear();
+        for bg in self.bg_color_array.iter() {
+            for fg in self.fg_colors.iter() {
+                bufs.bg_to_fg.push(
+                    ContrastRatio::for_pair(*bg, *fg, ContrastNeed::Text)
+                        .cost()
+                        .value(),
+                );
+            }
+        }
+        let bg_fg = root_mean_square(&bufs.bg_to_fg);
+        ScaledCost::new(Self::CONTRAST_BG_BG_WEIGHT * bg_bg + Self::CONTRAST_BG_FG_WEIGHT * bg_fg)
+    }
+
     fn total_cost(&self, bufs: &mut ScratchBuffers) -> TotalCost {
         use Vision::*;
 
         return TotalCost {
+            contrast_cost: self.contrast_cost(bufs).value(),
             distance_cost: self.distance_cost(bufs, Default).value(),
             // Range calculation has to happen after the above, so distance values are filled.
             range_cost: max_minus_min(&bufs.fg_to_fg),
@@ -262,34 +282,52 @@ fn print_contrast_table(rows: Vec<Color>, cols: Vec<Color>, need: ContrastNeed) 
     t.sort_rows(&|cr1, cr2| {
         let v1: Vec<_> = cr1.iter().map(|cr| cr.value()).collect();
         let v2: Vec<_> = cr2.iter().map(|cr| cr.value()).collect();
-        root_mean_square(&v1).partial_cmp(&root_mean_square(&v2))
-        .expect("Failed float comparison!")
+        root_mean_square(&v1)
+            .partial_cmp(&root_mean_square(&v2))
+            .expect("Failed float comparison!")
     });
     t.table().printstd();
     println!("");
 }
 
 fn main() {
-    let light_bgs = Mode::Light.bg_colors().into_array().to_vec();
-    println!("Light mode background contrast");
-    print_contrast_table(light_bgs.clone(), light_bgs.clone(), ContrastNeed::Background);
+    mode_main(Mode::Dark);
+    mode_main(Mode::Light);
+}
 
-    let light_fgs = Mode::Light.brand_colors();
-    println!("Light mode background <-> foreground contrast");
-    print_contrast_table(light_fgs.clone(), light_bgs.clone(), ContrastNeed::Text);
+fn mode_main(mode: Mode) {
+    let bgs = mode.bg_colors().into_array().to_vec();
+    println!("{} mode background contrast", mode.text());
+    print_contrast_table(
+        bgs.clone(),
+        bgs.clone(),
+        ContrastNeed::Background,
+    );
+
+    let fgs = mode.brand_colors();
+    println!("{} mode background ↔ foreground contrast", mode.text());
+    print_contrast_table(fgs.clone(), bgs.clone(), ContrastNeed::Text);
 
     let mut rng = setup();
 
-    let mut state = State::new(Mode::Light.bg_colors(), Mode::Light.brand_colors());
+    let mut state = State::new(mode.bg_colors(), mode.brand_colors());
     let report = state.optimize(&mut rng);
 
     let new_bg_colors = report.final_state.bg_colors.into_array().to_vec();
-    println!("Updated Light mode background contrast");
-    print_contrast_table(new_bg_colors.clone(), new_bg_colors.clone(), ContrastNeed::Background);
+    println!("Updated {} mode background contrast", mode.text());
+    print_contrast_table(
+        new_bg_colors.clone(),
+        new_bg_colors.clone(),
+        ContrastNeed::Background,
+    );
 
     let new_fg_colors = report.final_state.fg_colors.clone();
-    print!("Updated Light mode bg <-> fg contrast");
-    print_contrast_table(new_fg_colors.clone(), new_bg_colors.clone(), ContrastNeed::Text);
+    print!("Updated {} mode bg ↔ fg contrast", mode.text());
+    print_contrast_table(
+        new_fg_colors.clone(),
+        new_bg_colors.clone(),
+        ContrastNeed::Text,
+    );
 
     println!("{report}");
 }

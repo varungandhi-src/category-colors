@@ -1,5 +1,3 @@
-
-
 pub fn root_mean_square_distance(x: f32, s: &[f32]) -> f32 {
     f32::sqrt(s.iter().map(|y| (x - y) * (x - y)).sum::<f32>() / (s.len() as f32))
 }
