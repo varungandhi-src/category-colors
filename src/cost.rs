@@ -1,7 +1,5 @@
 use std::fmt::Display;
 
-use crate::color::ContrastRatio;
-
 #[derive(Copy, Clone)]
 pub enum ContrastNeed {
     Background,
@@ -43,7 +41,7 @@ impl ScaledCost {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct TotalCost {
     pub contrast_cost: f32,
     pub distance_cost: f32,
@@ -70,22 +68,50 @@ impl Display for TotalCost {
     }
 }
 
-impl TotalCost {
-    const CONTRAST_WEIGHT: f32 = 2.0;
-    const DISTANCE_WEIGHT: f32 = 0.75;
-    const RANGE_WEIGHT: f32 = 0.25;
-    const TARGET_WEIGHT: f32 = 0.50;
-    const PROTANOPIA_WEIGHT: f32 = 0.33;
-    const DEUTERANOPIA_WEIGHT: f32 = 0.33;
-    const TRITANOPIA_WEIGHT: f32 = 0.33;
+#[derive(Clone)]
+pub struct Weights {
+    pub contrast_weight: f32,
+    pub distance_weight: f32,
+    pub range_weight: f32,
+    pub target_weight: f32,
+    pub protanopia_weight: f32,
+    pub deuteranopia_weight: f32,
+    pub tritanopia_weight: f32,
 
-    pub fn total(&self) -> f32 {
-        Self::CONTRAST_WEIGHT * self.contrast_cost
-            + Self::DISTANCE_WEIGHT * self.distance_cost
-            + Self::RANGE_WEIGHT * self.range_cost
-            + Self::TARGET_WEIGHT * self.target_cost
-            + Self::PROTANOPIA_WEIGHT * self.protanopia_cost
-            + Self::DEUTERANOPIA_WEIGHT * self.deuteranopia_cost
-            + Self::TRITANOPIA_WEIGHT * self.tritanopia_cost
+    pub distance_bg_bg_weight: f32,
+    pub distance_bg_fg_weight: f32,
+    pub distance_fg_fg_weight: f32,
+
+    pub target_bg_weight: f32,
+    pub target_fg_weight: f32,
+
+    pub contrast_bg_bg_weight: f32,
+    pub contrast_bg_fg_weight: f32,
+}
+
+impl Weights {
+    pub fn initialize(mut self) -> Self {
+        assert!((0.99..=1.01).contains(
+            &(self.distance_bg_bg_weight + self.distance_bg_fg_weight + self.distance_fg_fg_weight)
+        ));
+        self.distance_fg_fg_weight = 1. - (self.distance_bg_bg_weight + self.distance_bg_fg_weight);
+        assert!((0.99..=1.01).contains(&(self.target_bg_weight + self.target_fg_weight)));
+        self.target_fg_weight = 1. - self.target_bg_weight;
+        assert!((0.99..=1.01).contains(&(self.contrast_bg_bg_weight + self.contrast_bg_fg_weight)));
+        self.contrast_bg_fg_weight = 1. - self.contrast_bg_bg_weight;
+
+        self
+    }
+}
+
+impl TotalCost {
+    pub fn total(&self, w: &Weights) -> f32 {
+        w.contrast_weight * self.contrast_cost
+            + w.distance_weight * self.distance_cost
+            + w.range_weight * self.range_cost
+            + w.target_weight * self.target_cost
+            + w.protanopia_weight * self.protanopia_cost
+            + w.deuteranopia_weight * self.deuteranopia_cost
+            + w.tritanopia_weight * self.tritanopia_cost
     }
 }

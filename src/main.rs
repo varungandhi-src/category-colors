@@ -26,16 +26,19 @@ struct State {
     fg_colors: Vec<Color>,
     target_bg_colors: Vec<Color>,
     target_fg_colors: Vec<Color>,
+    weights: Weights,
 }
 
 #[derive(Default)]
 struct ScratchBuffers {
-    bg_to_fg: Vec<f32>,
-    fg_to_fg: Vec<f32>,
+    // For color transformation (before distance computation)
     bg_colors: Vec<Color>,
     fg_colors: Vec<Color>,
-    target_fg_deltas: Vec<f32>,
-    target_bg_deltas: Vec<f32>,
+
+    // Intermediate distances/contrast/target deltas.
+    bg_to_bg: Vec<f32>,
+    bg_to_fg: Vec<f32>,
+    fg_to_fg: Vec<f32>,
 }
 
 struct Report {
@@ -45,6 +48,7 @@ struct Report {
     final_state: State,
     duration: std::time::Duration,
     n_iterations: u64,
+    weights: Weights,
 }
 
 impl Display for Report {
@@ -52,8 +56,8 @@ impl Display for Report {
         write!(
             f,
             "Cost: {} (start) → {} (final)\n",
-            self.start_cost.total(),
-            self.final_cost.total()
+            self.start_cost.total(&self.weights),
+            self.final_cost.total(&self.weights)
         )?;
         write!(f, "Cost breakdown:\n")?;
         write!(f, "{}\n", self.start_cost)?;
@@ -95,16 +99,8 @@ impl State {
     const COOLING_RATE: f32 = 0.99;
     const CUTOFF: f32 = 0.0001;
 
-    const DISTANCE_BG_WEIGHT: f32 = 0.2;
-    const DISTANCE_FG_WEIGHT: f32 = 1. - Self::DISTANCE_BG_WEIGHT;
-
-    const TARGET_BG_WEIGHT: f32 = 0.1;
-    const TARGET_FG_WEIGHT: f32 = 1. - Self::TARGET_BG_WEIGHT;
-
-    const CONTRAST_BG_BG_WEIGHT: f32 = 0.2;
-    const CONTRAST_BG_FG_WEIGHT: f32 = 1. - Self::CONTRAST_BG_BG_WEIGHT;
-
     fn distance_cost(&self, bufs: &mut ScratchBuffers, v: Vision) -> ScaledCost {
+        // Map to bretter-function transformed colors first.
         bufs.bg_colors.clear();
         bufs.fg_colors.clear();
 
@@ -114,53 +110,87 @@ impl State {
                 .into_iter()
                 .map(|c| brettel_function(c, v)),
         );
-
         bufs.fg_colors
             .extend(self.fg_colors.iter().map(|c| brettel_function(*c, v)));
 
-        fg_mutual_distances(&bufs.fg_colors, &mut bufs.fg_to_fg);
-        let fg_score = root_mean_square_distance(100., &bufs.fg_to_fg);
+        // Compute distances and scores if needed.
+        let mut bg_bg_score: f32 = 0.;
+        if self.weights.distance_bg_bg_weight != 0. {
+            pairwise_distances(&bufs.bg_colors, &mut bufs.bg_to_bg);
+            bg_bg_score = root_mean_square_distance(100., &bufs.bg_to_bg);
+        }
 
-        bg_to_fg_distances(&bufs.bg_colors, &bufs.fg_colors, &mut bufs.bg_to_fg);
-        let bg_score = root_mean_square_distance(100., &bufs.bg_to_fg);
+        let mut bg_fg_score: f32 = 0.;
+        if self.weights.distance_bg_fg_weight != 0. {
+            pairwise_distances_2(&bufs.bg_colors, &bufs.fg_colors, &mut bufs.bg_to_fg);
+            bg_fg_score = root_mean_square_distance(100., &bufs.bg_to_fg);
+        }
 
-        ScaledCost::new(bg_score * Self::DISTANCE_BG_WEIGHT + fg_score * Self::DISTANCE_FG_WEIGHT)
+        let mut fg_fg_score: f32 = 0.;
+        if self.weights.distance_fg_fg_weight != 0. {
+            pairwise_distances(&bufs.fg_colors, &mut bufs.fg_to_fg);
+            fg_fg_score = root_mean_square_distance(100., &bufs.fg_to_fg);
+        }
+
+        ScaledCost::new(
+            bg_bg_score * self.weights.distance_bg_bg_weight
+                + bg_fg_score * self.weights.distance_bg_fg_weight
+                + fg_fg_score * self.weights.distance_fg_fg_weight,
+        )
     }
 
     fn target_cost(&self, bufs: &mut ScratchBuffers) -> ScaledCost {
-        bufs.target_fg_deltas.clear();
-        for current in self.fg_colors.iter() {
-            let closest = get_closest_color(*current, &self.target_fg_colors);
-            bufs.target_fg_deltas.push(distance(*current, closest));
+        let mut target_bg_score: f32 = 0.;
+        if self.weights.target_bg_weight != 0. {
+            bufs.bg_to_bg.clear();
+            for current in self.bg_color_array.iter() {
+                let closest = get_closest_color(*current, &self.target_bg_colors);
+                bufs.bg_to_bg.push(distance(*current, closest));
+            }
+            target_bg_score = root_mean_square(&bufs.bg_to_bg);
         }
-        let target_fg_score = root_mean_square(&bufs.target_fg_deltas);
 
-        bufs.target_bg_deltas.clear();
-        for current in self.bg_color_array.iter() {
-            let closest = get_closest_color(*current, &self.target_bg_colors);
-            bufs.target_bg_deltas.push(distance(*current, closest));
+        let mut target_fg_score: f32 = 0.;
+        if self.weights.target_fg_weight != 0. {
+            bufs.fg_to_fg.clear();
+            for current in self.fg_colors.iter() {
+                let closest = get_closest_color(*current, &self.target_fg_colors);
+                bufs.fg_to_fg.push(distance(*current, closest));
+            }
+            target_fg_score = root_mean_square(&bufs.fg_to_fg);
         }
-        let target_bg_score = root_mean_square(&bufs.target_bg_deltas);
 
         ScaledCost::new(
-            target_bg_score * Self::TARGET_BG_WEIGHT + target_fg_score * Self::TARGET_FG_WEIGHT,
+            target_bg_score * self.weights.target_bg_weight
+                + target_fg_score * self.weights.target_fg_weight,
         )
     }
 
     fn contrast_cost(&self, bufs: &mut ScratchBuffers) -> ScaledCost {
-        let bg_bg = self.bg_colors.contrast_cost().value();
-        bufs.bg_to_fg.clear();
-        for bg in self.bg_color_array.iter() {
-            for fg in self.fg_colors.iter() {
-                bufs.bg_to_fg.push(
-                    ContrastRatio::for_pair(*bg, *fg, ContrastNeed::Text)
-                        .cost()
-                        .value(),
-                );
-            }
+        let mut contrast_bg_bg_score: f32 = 0.;
+        if self.weights.contrast_bg_bg_weight != 0. {
+            contrast_bg_bg_score = self.bg_colors.contrast_cost().value();
         }
-        let bg_fg = root_mean_square(&bufs.bg_to_fg);
-        ScaledCost::new(Self::CONTRAST_BG_BG_WEIGHT * bg_bg + Self::CONTRAST_BG_FG_WEIGHT * bg_fg)
+
+        let mut contrast_bg_fg_score: f32 = 0.;
+        if self.weights.contrast_bg_fg_weight != 0. {
+            bufs.bg_to_fg.clear();
+            for bg in self.bg_color_array.iter() {
+                for fg in self.fg_colors.iter() {
+                    bufs.bg_to_fg.push(
+                        ContrastRatio::for_pair(*bg, *fg, ContrastNeed::Text)
+                            .cost()
+                            .value(),
+                    );
+                }
+            }
+            contrast_bg_fg_score = root_mean_square(&bufs.bg_to_fg);
+        }
+
+        ScaledCost::new(
+            contrast_bg_bg_score * self.weights.contrast_bg_bg_weight
+                + contrast_bg_fg_score * self.weights.contrast_bg_fg_weight,
+        )
     }
 
     fn total_cost(&self, bufs: &mut ScratchBuffers) -> TotalCost {
@@ -178,13 +208,14 @@ impl State {
         };
     }
 
-    fn new(bg_colors: BackgroundColors, target_fg_colors: Vec<Color>) -> Self {
+    fn new(bg_colors: BackgroundColors, target_fg_colors: Vec<Color>, weights: Weights) -> Self {
         State {
             bg_colors,
             bg_color_array: bg_colors.updateable_array().to_vec(),
             fg_colors: target_fg_colors.clone(),
             target_bg_colors: bg_colors.updateable_array().to_vec(),
             target_fg_colors,
+            weights,
         }
     }
 
@@ -210,7 +241,7 @@ impl State {
         let mut bufs = ScratchBuffers::default();
         let start_cost = self.total_cost(&mut bufs);
         let start_state = self.clone();
-        let mut old_cost = start_cost;
+        let mut old_cost = start_cost.clone();
 
         let mut temperature = Self::INITIAL_TEMPERATURE;
 
@@ -228,7 +259,7 @@ impl State {
                 }
                 // FIXME: Make this incremental for better performance!
                 let new_cost = self.total_cost(&mut bufs);
-                let delta = new_cost.total() - old_cost.total();
+                let delta = new_cost.total(&self.weights) - old_cost.total(&self.weights);
                 let acceptance_probability = (-delta / temperature).exp();
                 let accept = rng.gen_range(0. ..=1.) < acceptance_probability;
                 if accept {
@@ -253,6 +284,7 @@ impl State {
             final_state: self.clone(),
             n_iterations,
             duration,
+            weights: self.weights.clone(),
         }
     }
 }
@@ -295,14 +327,30 @@ fn main() {
     mode_main(Mode::Light);
 }
 
+fn default_weights() -> Weights {
+    Weights {
+        contrast_weight: 2.,
+        distance_weight: 0.75,
+        range_weight: 0.25,
+        target_weight: 0.50,
+        protanopia_weight: 0.33,
+        deuteranopia_weight: 0.33,
+        tritanopia_weight: 0.33,
+        distance_bg_bg_weight: 0.1,
+        distance_bg_fg_weight: 0.2,
+        distance_fg_fg_weight: 0.7,
+        target_bg_weight: 0.1,
+        target_fg_weight: 0.9,
+        contrast_bg_bg_weight: 0.2,
+        contrast_bg_fg_weight: 0.8,
+    }
+    .initialize()
+}
+
 fn mode_main(mode: Mode) {
     let bgs = mode.bg_colors().into_array().to_vec();
     println!("{} mode background contrast", mode.text());
-    print_contrast_table(
-        bgs.clone(),
-        bgs.clone(),
-        ContrastNeed::Background,
-    );
+    print_contrast_table(bgs.clone(), bgs.clone(), ContrastNeed::Background);
 
     let fgs = mode.brand_colors();
     println!("{} mode background ↔ foreground contrast", mode.text());
@@ -310,7 +358,7 @@ fn mode_main(mode: Mode) {
 
     let mut rng = setup();
 
-    let mut state = State::new(mode.bg_colors(), mode.brand_colors());
+    let mut state = State::new(mode.bg_colors(), mode.brand_colors(), default_weights());
     let report = state.optimize(&mut rng);
 
     let new_bg_colors = report.final_state.bg_colors.into_array().to_vec();

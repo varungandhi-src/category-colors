@@ -32,7 +32,7 @@ impl Mode {
     fn grey_scale_colors(self) -> Vec<Color> {
         match self {
             Mode::Dark => vec![rgb("#3c4665"), rgb("#a7aabd")],
-            Mode::Light => vec![rgb("#474554"), rgb("#aca7cb")]
+            Mode::Light => vec![rgb("#474554"), rgb("#aca7cb")],
         }
     }
 
@@ -116,8 +116,7 @@ impl BackgroundColors {
         let mut contrast_values = Vec::with_capacity(pairs.len());
         for (c1, c2) in pairs.into_iter() {
             let need = ContrastNeed::Background;
-            contrast_values
-                .push(ContrastRatio::for_pair(c1, c2, need).cost().value());
+            contrast_values.push(ContrastRatio::for_pair(c1, c2, need).cost().value());
         }
         ScaledCost::new(root_mean_square(&contrast_values))
     }

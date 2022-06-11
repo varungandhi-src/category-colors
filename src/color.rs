@@ -42,7 +42,7 @@ pub fn get_closest_color(c: Color, cs: &[Color]) -> Color {
     out.unwrap()
 }
 
-pub fn bg_to_fg_distances(bg_colors: &[Color], fg_colors: &[Color], out: &mut Vec<f32>) {
+pub fn pairwise_distances_2(bg_colors: &[Color], fg_colors: &[Color], out: &mut Vec<f32>) {
     out.clear();
     for bg_color in bg_colors {
         for fg_color in fg_colors {
@@ -51,7 +51,7 @@ pub fn bg_to_fg_distances(bg_colors: &[Color], fg_colors: &[Color], out: &mut Ve
     }
 }
 
-pub fn fg_mutual_distances(fg_colors: &[Color], out: &mut Vec<f32>) {
+pub fn pairwise_distances(fg_colors: &[Color], out: &mut Vec<f32>) {
     out.clear();
     for i in 0..fg_colors.len() {
         for j in (i + 1)..fg_colors.len() {
