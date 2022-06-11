@@ -101,7 +101,7 @@ impl State {
     const TARGET_BG_WEIGHT: f32 = 0.1;
     const TARGET_FG_WEIGHT: f32 = 1. - Self::TARGET_BG_WEIGHT;
 
-    const CONTRAST_BG_BG_WEIGHT: f32 = 0.3;
+    const CONTRAST_BG_BG_WEIGHT: f32 = 0.2;
     const CONTRAST_BG_FG_WEIGHT: f32 = 1. - Self::CONTRAST_BG_BG_WEIGHT;
 
     fn distance_cost(&self, bufs: &mut ScratchBuffers, v: Vision) -> ScaledCost {

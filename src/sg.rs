@@ -20,18 +20,30 @@ impl Mode {
         }
     }
 
-    pub fn brand_color_keys(self) -> Vec<&'static str> {
+    fn brand_color_keys(self) -> Vec<&'static str> {
         match self {
-            Mode::Dark => vec!["mist", "light"],
-            Mode::Light => vec!["medium", "dark"],
+            Mode::Dark => vec!["mist", "light", "medium"],
+            Mode::Light => vec!["light", "medium", "dark"],
         }
     }
+
+    // Some related grey-scale from mycolor.space after entering
+    // the main background color as input
+    fn grey_scale_colors(self) -> Vec<Color> {
+        match self {
+            Mode::Dark => vec![rgb("#3c4665"), rgb("#a7aabd")],
+            Mode::Light => vec![rgb("#474554"), rgb("#aca7cb")]
+        }
+    }
+
     pub fn brand_colors(self) -> Vec<Color> {
         let cols = brand_colors();
         let mut out = vec![];
         for key in self.brand_color_keys().into_iter() {
             out.extend(cols[key].iter());
         }
+        // HACK: Just add the grey_scale colors here for now
+        out.extend(self.grey_scale_colors().iter());
         return out;
     }
     pub fn text(&self) -> &'static str {
